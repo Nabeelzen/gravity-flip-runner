@@ -29,7 +29,8 @@ SKINS = [
     {"name": "Ninja",   "kind": "ninja", "price": 200, "body": (200, 40, 50),   "inner": (255, 90, 90)},
     {"name": "Pizza",   "kind": "pizza", "price": 250, "body": (220, 150, 60),  "inner": (255, 205, 75)},
     {"name": "Ducky",   "kind": "duck",  "price": 300, "body": (240, 185, 30),  "inner": (255, 225, 80)},
-    {"name": "Sigma",   "kind": "sigma", "price": 400, "body": (190, 140, 20),  "inner": (255, 220, 80)},
+    {"name": "Luna",    "kind": "girl",   "price": 0,    "body": (235, 80, 155),  "inner": (255, 150, 210)},
+    {"name": "Sigma",   "kind": "sigma",  "price": 400,  "body": (190, 140, 20),  "inner": (255, 220, 80)},
 ]
 
 # ---------- Saving ----------
@@ -125,7 +126,7 @@ particles = []
 shake = 0
 
 state = "menu"          # "menu", "playing", "paused", "game_over"
-panel = None            # None, "rules" or "skins" (only on the menu)
+panel = "character_prompt"
 distance = 0
 coins = 0
 shield = False
@@ -228,6 +229,25 @@ def make_sprite(kind):
         pygame.draw.ellipse(s, (240, 185, 30), (7, 22, 17, 11))
         pygame.draw.circle(s, dark, (27, 10), 2)
 
+    elif kind == "girl":
+        pink = (245, 90, 165)
+        light_pink = (255, 155, 205)
+        skin = (255, 205, 180)
+        pygame.draw.circle(s, pink, (7, 10), 7)
+        pygame.draw.circle(s, pink, (33, 10), 7)
+        pygame.draw.polygon(s, pink, [(4, 12), (10, 2), (20, 7), (30, 2), (36, 12),
+                                      (34, 29), (6, 29)])
+        pygame.draw.circle(s, skin, (20, 19), 13)
+        pygame.draw.circle(s, pink, (5, 6), 4)
+        pygame.draw.circle(s, pink, (35, 6), 4)
+        pygame.draw.circle(s, dark, (15, 18), 2)
+        pygame.draw.circle(s, dark, (25, 18), 2)
+        pygame.draw.circle(s, light_pink, (11, 23), 3)
+        pygame.draw.circle(s, light_pink, (29, 23), 3)
+        pygame.draw.arc(s, (190, 60, 110), (16, 20, 8, 8), 0.2, 2.9, 2)
+        pygame.draw.polygon(s, pink, [(20, 28), (5, 39), (35, 39)])
+        pygame.draw.polygon(s, light_pink, [(20, 29), (13, 38), (27, 38)])
+
     elif kind == "sigma":
         pygame.draw.rect(s, (190, 140, 20), (0, 0, 40, 40), border_radius=10)
         pygame.draw.rect(s, (255, 215, 70), (4, 4, 32, 32), border_radius=8)
@@ -259,7 +279,11 @@ SKINS_BTN = pygame.Rect(WIDTH // 2 - 23, HEIGHT - 61 , 46 , 46)
 MUTE_BTN = pygame.Rect(WIDTH - 61, HEIGHT - 61 , 46 , 46)
 BEST_POS = (WIDTH // 2 , 300)     # (X,Y) of the center of the best text
 CLOSE_BTN = pygame.Rect(WIDTH // 2 - 55, HEIGHT - 70, 110, 32)
-CARD_RECTS = [pygame.Rect(37 + (i % 4) * 185, 105 + (i // 4) * 112, 170, 105)
+START_CHARACTER_RECTS = [
+    pygame.Rect(225, 185, 150, 125),
+    pygame.Rect(425, 185, 150, 125),
+]
+CARD_RECTS = [pygame.Rect(20 + (i % 3) * 260, 100 + (i // 3) * 77, 240, 70)
               for i in range(len(SKINS))]
 
 def points():
@@ -437,6 +461,13 @@ def handle_click(pos):
                 pygame.mixer.stop()
     elif panel == "rules":
         panel = None                      # click anywhere to close
+    elif panel == "character_prompt":
+        for i, rect in enumerate(START_CHARACTER_RECTS):
+            if rect.collidepoint(pos):
+                skin_index = (0, 7)[i]
+                panel = None
+                save_data()
+                break
     elif panel == "skins":
         if CLOSE_BTN.collidepoint(pos):
             panel = None
@@ -664,7 +695,7 @@ while running:
         bob = math.sin(pygame.time.get_ticks() / 300) * 6
         center_text(title_font, "GRAVITY FLIP", (0, 225, 255), int(80 + bob))
         center_text(title_font, "RUNNER", (255, 120, 90), int(140 + bob))
-        center_text(big_font, "Press SPACE to start", (255, 255, 255), 235)
+        center_text(big_font, "Choose a character, then press SPACE", (255, 255, 255), 235)
         if high_score:
             best = small_font.render(f"Best Score: {high_score}", True, (160, 160, 190))
             canvas.blit(best, best.get_rect(center=BEST_POS))
@@ -710,6 +741,27 @@ while running:
                     (180, 180, 200), HEIGHT // 2 + 50)
 
     # ----- Panels (menu only) -----
+    if state == "menu" and panel == "character_prompt":
+        canvas.blit(dim, (0, 0))
+        box = pygame.Rect(155, 55, 490, 325)
+        pygame.draw.rect(canvas, (22, 24, 50), box, border_radius=14)
+        pygame.draw.rect(canvas, (0, 200, 240), box, 2, border_radius=14)
+        center_text(big_font, "CHOOSE YOUR CHARACTER", (0, 225, 255), 112)
+        center_text(small_font, "Click a character to select it.", (255, 255, 255), 150)
+        for i, rect in enumerate(START_CHARACTER_RECTS):
+            hover = rect.collidepoint(pygame.mouse.get_pos())
+            pygame.draw.rect(canvas, (50, 60, 100) if hover else (26, 28, 56),
+                             rect, border_radius=12)
+            pygame.draw.rect(canvas, (0, 225, 255) if hover else (90, 100, 150),
+                             rect, 2, border_radius=12)
+            draw_cube(rect.centerx - PLAYER_SIZE // 2, rect.y + 8, (0, 7)[i],
+                      1, with_glow=False)
+            name = small_font.render(SKINS[(0, 7)[i]]["name"], True, (255, 255, 255))
+            canvas.blit(name, (rect.centerx - name.get_width() // 2, rect.y + 60))
+            free = small_font.render("FREE", True, (120, 240, 130))
+            canvas.blit(free, (rect.centerx - free.get_width() // 2, rect.y + 87))
+        center_text(small_font, "You can change characters from the menu.", (160, 160, 190), 350)
+
     if state == "menu" and panel == "rules":
         canvas.blit(dim, (0, 0))
         box = pygame.Rect(130, 15, 540, 370)
@@ -734,6 +786,7 @@ while running:
     if state == "menu" and panel == "skins":
         canvas.blit(dim, (0, 0))
         center_text(big_font, "DRIP SHOP", (0, 225, 255), 25)
+        center_text(small_font, "Choose your character to start", (255, 255, 255), 62)
         wtxt = med_font.render(f"{wallet}", True, (255, 220, 100))
         center_total = 24 + wtxt.get_width()
         wx = WIDTH // 2 - center_total // 2
@@ -746,9 +799,9 @@ while running:
             pygame.draw.rect(canvas, (40, 44, 80) if hover else (26, 28, 56), r, border_radius=12)
             border = (255, 210, 60) if equipped else (90, 100, 150)
             pygame.draw.rect(canvas, border, r, 3 if equipped else 2, border_radius=12)
-            draw_cube(r.centerx - PLAYER_SIZE // 2, r.y + 10, i, 1, with_glow=False)
+            draw_cube(r.centerx - PLAYER_SIZE // 2, r.y + 3, i, 1, with_glow=False)
             name = small_font.render(SKINS[i]["name"], True, (255, 255, 255))
-            canvas.blit(name, (r.centerx - name.get_width() // 2, r.y + 55))
+            canvas.blit(name, (r.centerx - name.get_width() // 2, r.y + 39))
             if equipped:
                 st, col = "Equipped", (120, 240, 130)
             elif i in unlocked:
@@ -756,7 +809,7 @@ while running:
             else:
                 st, col = f"{SKINS[i]['price']} coins", (255, 220, 100)
             stt = small_font.render(st, True, col)
-            canvas.blit(stt, (r.centerx - stt.get_width() // 2, r.y + 78))
+            canvas.blit(stt, (r.centerx - stt.get_width() // 2, r.y + 56))
 
         draw_button(CLOSE_BTN, "Close")
         if msg_timer > 0:
