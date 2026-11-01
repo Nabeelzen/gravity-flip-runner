@@ -1,0 +1,640 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#0e0e1c">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<title>Gravity Flip Runner</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #0e0e1c; overflow: hidden;
+               touch-action: none; user-select: none; -webkit-user-select: none;
+               -webkit-tap-highlight-color: transparent; overscroll-behavior: none; }
+  #wrap { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; }
+  canvas { display: block; background: #0e0e1c; }
+</style>
+</head>
+<body>
+<div id="wrap"><canvas id="game" width="800" height="400"></canvas></div>
+<script>
+"use strict";
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
+const W = 800, H = 400, SIZE = 40;
+const FONT = "Arial, Helvetica, sans-serif";
+
+/* ---------- Fit canvas to any screen (keeps 2:1 shape) ---------- */
+function fit() {
+  const s = Math.min(window.innerWidth / W, window.innerHeight / H);
+  canvas.style.width = Math.floor(W * s) + "px";
+  canvas.style.height = Math.floor(H * s) + "px";
+}
+window.addEventListener("resize", fit);
+window.addEventListener("orientationchange", fit);
+fit();
+
+/* ---------- Small helpers ---------- */
+const rand = (a, b) => Math.random() * (b - a) + a;
+const randInt = (a, b) => Math.floor(rand(a, b + 1));
+const choice = arr => arr[Math.floor(Math.random() * arr.length)];
+const hit = (a, b) => a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+const inRect = (px, py, r) => px >= r.x && px <= r.x + r.w && py >= r.y && py <= r.y + r.h;
+
+function rr(c, x, y, w, h, r, fill, stroke, lw) {
+  c.beginPath();
+  c.roundRect(x, y, w, h, r);
+  if (fill) { c.fillStyle = fill; c.fill(); }
+  if (stroke) { c.strokeStyle = stroke; c.lineWidth = lw || 2; c.stroke(); }
+}
+function circle(c, x, y, r, fill, stroke, lw) {
+  c.beginPath(); c.arc(x, y, r, 0, Math.PI * 2);
+  if (fill) { c.fillStyle = fill; c.fill(); }
+  if (stroke) { c.strokeStyle = stroke; c.lineWidth = lw || 2; c.stroke(); }
+}
+function ellipse(c, x, y, w, h, fill) {
+  c.beginPath(); c.ellipse(x + w / 2, y + h / 2, w / 2, h / 2, 0, 0, Math.PI * 2);
+  c.fillStyle = fill; c.fill();
+}
+function poly(c, pts, fill, stroke, lw) {
+  c.beginPath(); c.moveTo(pts[0][0], pts[0][1]);
+  for (let i = 1; i < pts.length; i++) c.lineTo(pts[i][0], pts[i][1]);
+  c.closePath();
+  if (fill) { c.fillStyle = fill; c.fill(); }
+  if (stroke) { c.strokeStyle = stroke; c.lineWidth = lw || 2; c.stroke(); }
+}
+function line(c, x1, y1, x2, y2, color, lw) {
+  c.beginPath(); c.moveTo(x1, y1); c.lineTo(x2, y2);
+  c.strokeStyle = color; c.lineWidth = lw || 2; c.stroke();
+}
+function text(str, x, y, size, color, align, bold) {
+  ctx.font = (bold ? "bold " : "") + size + "px " + FONT;
+  ctx.fillStyle = color; ctx.textAlign = align || "left"; ctx.textBaseline = "middle";
+  ctx.fillText(str, x, y);
+}
+
+/* ---------- Characters (DRIP) ---------- */
+const SKINS = [
+  { name: "Classic", kind: "cube",  price: 0,   body: "#00aadc", inner: "#00e1ff" },
+  { name: "Ghosty",  kind: "ghost", price: 50,  body: "#aaaadc", inner: "#ebebff" },
+  { name: "Robo",    kind: "robot", price: 100, body: "#64dc96", inner: "#50ffa0" },
+  { name: "Alien",   kind: "alien", price: 150, body: "#3caa50", inner: "#78f082" },
+  { name: "Ninja",   kind: "ninja", price: 200, body: "#c82832", inner: "#ff5a5a" },
+  { name: "Pizza",   kind: "pizza", price: 250, body: "#dc963c", inner: "#ffcd4b" },
+  { name: "Ducky",   kind: "duck",  price: 300, body: "#f0b91e", inner: "#ffe150" },
+  { name: "Sigma",   kind: "sigma", price: 400, body: "#be8c14", inner: "#ffdc50" },
+];
+
+function makeSprite(kind) {
+  const s = document.createElement("canvas");
+  s.width = s.height = SIZE;
+  const c = s.getContext("2d");
+  const white = "#fff", dark = "#14141e";
+  if (kind === "cube") {
+    rr(c, 0, 0, 40, 40, 10, "#00aadc");
+    rr(c, 4, 4, 32, 32, 8, "#00e1ff");
+    for (const ex of [12, 28]) { circle(c, ex, 14, 6, white); circle(c, ex + 2, 14, 3, dark); }
+  } else if (kind === "ghost") {
+    const b = "#ebebff";
+    circle(c, 20, 18, 18, b); c.fillStyle = b; c.fillRect(2, 18, 36, 14);
+    for (const cx of [8, 20, 32]) circle(c, cx, 32, 6, b);
+    ellipse(c, 10, 11, 7, 11, "#282846"); ellipse(c, 23, 11, 7, 11, "#282846");
+    ellipse(c, 17, 26, 6, 7, "#282846");
+    circle(c, 8, 24, 3, "#ffaabe"); circle(c, 32, 24, 3, "#ffaabe");
+  } else if (kind === "robot") {
+    line(c, 20, 8, 20, 2, "#aab4c8", 2); circle(c, 20, 3, 3, "#ff4646");
+    rr(c, 0, 16, 4, 10, 2, "#23283c"); rr(c, 36, 16, 4, 10, 2, "#23283c");
+    rr(c, 3, 8, 34, 31, 7, "#96a0b9"); rr(c, 7, 13, 26, 21, 5, "#192032");
+    c.fillStyle = "#50ffa0"; c.fillRect(11, 18, 7, 7); c.fillRect(22, 18, 7, 7);
+    line(c, 14, 29, 26, 29, "#50ffa0", 2);
+  } else if (kind === "alien") {
+    const g = "#6edc78";
+    line(c, 13, 7, 8, 1, g, 2); line(c, 27, 7, 32, 1, g, 2);
+    circle(c, 8, 3, 3, g); circle(c, 32, 3, 3, g);
+    ellipse(c, 3, 4, 34, 35, g);
+    ellipse(c, 6, 14, 12, 15, "#0f140f"); ellipse(c, 22, 14, 12, 15, "#0f140f");
+    circle(c, 11, 19, 2, white); circle(c, 27, 19, 2, white);
+    line(c, 16, 33, 24, 33, "#1e6e32", 2);
+  } else if (kind === "ninja") {
+    poly(c, [[32, 11], [40, 5], [40, 11]], "#e12d37");
+    poly(c, [[32, 11], [40, 14], [40, 21]], "#e12d37");
+    rr(c, 0, 2, 34, 36, 10, "#28283a");
+    rr(c, 4, 14, 26, 12, 4, "#f5cda5");
+    c.fillStyle = "#e12d37"; c.fillRect(0, 8, 34, 6);
+    ellipse(c, 8, 17, 8, 6, white); ellipse(c, 19, 17, 8, 6, white);
+    circle(c, 12, 20, 2, dark); circle(c, 23, 20, 2, dark);
+  } else if (kind === "pizza") {
+    const crust = "#e1a046", cheese = "#ffcd4b";
+    poly(c, [[1, 3], [39, 3], [20, 39]], crust);
+    poly(c, [[5, 10], [35, 10], [20, 35]], cheese);
+    rr(c, 1, 2, 38, 8, 4, crust);
+    circle(c, 20, 29, 3, "#c83737");
+    for (const ex of [15, 25]) { circle(c, ex, 16, 4, white); circle(c, ex + 1, 16, 2, dark); }
+    c.beginPath(); c.arc(20, 21, 5, 0.2, Math.PI - 0.2);
+    c.strokeStyle = "#783c14"; c.lineWidth = 2; c.stroke();
+  } else if (kind === "duck") {
+    const y = "#ffd732";
+    poly(c, [[4, 22], [0, 14], [10, 19]], y);
+    ellipse(c, 3, 14, 34, 24, y);
+    circle(c, 24, 13, 11, y);
+    poly(c, [[32, 10], [40, 14], [32, 18]], "#ff8c28");
+    ellipse(c, 7, 22, 17, 11, "#f0b91e");
+    circle(c, 27, 10, 2, dark);
+  } else if (kind === "sigma") {
+    rr(c, 0, 0, 40, 40, 10, "#be8c14");
+    rr(c, 4, 4, 32, 32, 8, "#ffd746");
+    rr(c, 6, 12, 12, 8, 3, "#0f0f14"); rr(c, 22, 12, 12, 8, 3, "#0f0f14");
+    line(c, 18, 15, 22, 15, "#0f0f14", 3);
+    line(c, 8, 14, 11, 14, white, 1); line(c, 24, 14, 27, 14, white, 1);
+    c.beginPath(); c.arc(20, 22, 7, 0.3, Math.PI - 0.6);
+    c.strokeStyle = "#5a3c0a"; c.lineWidth = 3; c.stroke();
+  }
+  return s;
+}
+const sprites = SKINS.map(s => makeSprite(s.kind));
+
+function makeGlow(color) {
+  const g = document.createElement("canvas"); g.width = g.height = 120;
+  const c = g.getContext("2d");
+  for (const [r, a] of [[60, 0.06], [45, 0.1], [30, 0.16]]) {
+    c.globalAlpha = a; circle(c, 60, 60, r, color);
+  }
+  return g;
+}
+const glows = SKINS.map(s => makeGlow(s.inner));
+
+/* ---------- Save / load (browser storage, works on phones) ---------- */
+const SAVE_KEY = "gravityFlipRunnerSave";
+let high = 0, wallet = 0, unlocked = [0], skinIndex = 0;
+try {
+  const d = JSON.parse(localStorage.getItem(SAVE_KEY) || "{}");
+  high = d.high || 0; wallet = d.wallet || 0;
+  if (Array.isArray(d.unlocked) && d.unlocked.length) unlocked = d.unlocked;
+  skinIndex = unlocked.includes(d.skin) ? d.skin : 0;
+} catch (e) {}
+function save() {
+  try { localStorage.setItem(SAVE_KEY, JSON.stringify({ high, wallet, unlocked, skin: skinIndex })); } catch (e) {}
+}
+
+/* ---------- Sound (generated, no files) ---------- */
+let audio = null, muted = false;
+try { muted = localStorage.getItem("gfrMuted") === "1"; } catch (e) {}
+function initAudio() {
+  if (!audio) {
+    try { audio = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { audio = null; }
+  }
+  if (audio && audio.state === "suspended") audio.resume();
+}
+function tone(f1, f2, dur, vol, noise) {
+  if (muted || !audio) return;
+  const t = audio.currentTime;
+  const g = audio.createGain();
+  g.gain.setValueAtTime(vol, t);
+  g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+  g.connect(audio.destination);
+  const o = audio.createOscillator();
+  o.frequency.setValueAtTime(f1, t);
+  o.frequency.linearRampToValueAtTime(f2, t + dur);
+  o.connect(g); o.start(t); o.stop(t + dur);
+  if (noise) {
+    const n = Math.floor(audio.sampleRate * dur);
+    const buf = audio.createBuffer(1, n, audio.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < n; i++) d[i] = Math.random() * 2 - 1;
+    const src = audio.createBufferSource(); src.buffer = buf;
+    src.connect(g); src.start(t);
+  }
+}
+const sfx = {
+  flip:  () => tone(500, 900, 0.10, 0.20),
+  crash: () => tone(220, 40, 0.45, 0.35, true),
+  start: () => tone(400, 900, 0.20, 0.20),
+  coin:  () => tone(900, 1500, 0.08, 0.15),
+  power: () => tone(300, 1100, 0.25, 0.20),
+  brk:   () => tone(700, 150, 0.25, 0.30, true),
+  buy:   () => tone(600, 1300, 0.18, 0.20),
+};
+function toggleMute() {
+  muted = !muted;
+  try { localStorage.setItem("gfrMuted", muted ? "1" : "0"); } catch (e) {}
+}
+
+/* ---------- Game state ---------- */
+let state = "menu";          // menu, playing, paused, over
+let panel = null;            // null, "rules", "drip"
+let px = 100, py = H - SIZE, vel = 0, grav = 1;
+const GRAV_FORCE = 0.8;
+let obstacles = [], pickups = [], particles = [];
+let spawnTimer = 0, spawnDelay = 90, speed = 6;
+let distance = 0, coins = 0, shield = false;
+let slowTimer = 0, slowMax = 300, invincible = 0, newBest = false;
+let shake = 0, msg = "", msgTimer = 0;
+const stars = Array.from({ length: 60 }, () =>
+  [rand(0, W), rand(0, H), rand(0.5, 2.5), randInt(1, 2)]);
+
+const points = () => Math.floor(distance / 10) + coins * 5;
+
+function resetGame() {
+  py = H - SIZE; vel = 0; grav = 1;
+  obstacles = []; pickups = []; particles = [];
+  spawnTimer = 0; spawnDelay = 90; speed = 6;
+  distance = 0; coins = 0; shield = false;
+  slowTimer = 0; slowMax = 300; invincible = 0; newBest = false;
+}
+function burst(x, y, color, count, spd) {
+  for (let i = 0; i < count; i++) {
+    const a = rand(0, Math.PI * 2), s = rand(0.5, spd), life = randInt(20, 40);
+    particles.push([x, y, Math.cos(a) * s, Math.sin(a) * s, life, life, color, randInt(2, 5)]);
+  }
+}
+function setMsg(t) { msg = t; msgTimer = 90; }
+
+/* ---------- UI rectangles ---------- */
+const RULES_BTN = { x: 15, y: H - 61, w: 46, h: 46 };
+const DRIP_BTN  = { x: W / 2 - 23, y: H - 61, w: 46, h: 46 };
+const MUTE_BTN  = { x: W - 61, y: H - 61, w: 46, h: 46 };
+const CLOSE_BTN = { x: W / 2 - 55, y: H - 70, w: 110, h: 32 };
+const PAUSE_BTN = { x: W / 2 - 18, y: 6, w: 36, h: 36 };
+const RESTART_BTN = { x: 260, y: 258, w: 130, h: 40 };
+const MENU_BTN    = { x: 410, y: 258, w: 130, h: 40 };
+const BEST_POS = [W / 2, 300];
+const CARDS = SKINS.map((_, i) => ({ x: 37 + (i % 4) * 185, y: 105 + Math.floor(i / 4) * 112, w: 170, h: 105 }));
+
+/* ---------- Actions ---------- */
+function startGame() { resetGame(); state = "playing"; sfx.start(); }
+function doFlip() {
+  grav = -grav;
+  burst(px + SIZE / 2, grav === -1 ? py + SIZE : py, SKINS[skinIndex].inner, 10, 3);
+  sfx.flip();
+}
+function togglePause() {
+  if (state === "playing") state = "paused";
+  else if (state === "paused") state = "playing";
+}
+function clickDrip(x, y) {
+  if (inRect(x, y, CLOSE_BTN)) { panel = null; return; }
+  CARDS.forEach((r, i) => {
+    if (!inRect(x, y, r)) return;
+    if (unlocked.includes(i)) { skinIndex = i; save(); }
+    else if (wallet >= SKINS[i].price) {
+      wallet -= SKINS[i].price; unlocked.push(i); skinIndex = i; save();
+      sfx.buy(); setMsg(SKINS[i].name + " unlocked!");
+    } else setMsg("Need " + (SKINS[i].price - wallet) + " more coins");
+  });
+}
+function handlePointer(x, y) {
+  initAudio();
+  if (state === "menu") {
+    if (panel === "rules") { panel = null; return; }
+    if (panel === "drip") { clickDrip(x, y); return; }
+    if (inRect(x, y, RULES_BTN)) panel = "rules";
+    else if (inRect(x, y, DRIP_BTN)) panel = "drip";
+    else if (inRect(x, y, MUTE_BTN)) toggleMute();
+    else startGame();                         // tap anywhere else to start
+  } else if (state === "playing") {
+    if (inRect(x, y, PAUSE_BTN)) togglePause(); else doFlip();
+  } else if (state === "paused") {
+    togglePause();
+  } else if (state === "over") {
+    if (inRect(x, y, MENU_BTN)) { resetGame(); state = "menu"; }
+    else if (inRect(x, y, RESTART_BTN)) startGame();
+  }
+}
+canvas.addEventListener("pointerdown", e => {
+  e.preventDefault();
+  const r = canvas.getBoundingClientRect();
+  handlePointer((e.clientX - r.left) * W / r.width, (e.clientY - r.top) * H / r.height);
+});
+canvas.addEventListener("contextmenu", e => e.preventDefault());
+
+window.addEventListener("keydown", e => {
+  initAudio();
+  if (["Space", "ArrowUp", "ArrowDown"].includes(e.code)) e.preventDefault();
+  if (e.repeat) return;
+  if (e.code === "Escape") { if (panel) panel = null; else if (state === "playing") togglePause(); }
+  else if (e.code === "KeyM") toggleMute();
+  else if (e.code === "KeyP") togglePause();
+  else if (e.code === "Space" || e.code === "ArrowUp" || e.code === "ArrowDown") {
+    if (state === "menu" && !panel) startGame();
+    else if (state === "playing") doFlip();
+    else if (state === "paused") togglePause();
+  } else if (e.code === "KeyR" && state === "over") startGame();
+  else if (e.code === "Enter" && state === "over") { resetGame(); state = "menu"; }
+});
+document.addEventListener("visibilitychange", () => { if (document.hidden && state === "playing") state = "paused"; });
+
+/* ---------- Update (runs 60 times a second) ---------- */
+function update() {
+  if (msgTimer > 0) msgTimer--;
+  if (state !== "paused") {
+    for (const s of stars) { s[0] -= s[2]; if (s[0] < 0) { s[0] = W; s[1] = rand(0, H); } }
+  }
+
+  if (state === "playing") {
+    const slow = slowTimer > 0;
+    const eff = slow ? Math.max(1, Math.floor(speed / 2)) : speed;
+    if (slowTimer > 0) slowTimer--;
+    if (invincible > 0) invincible--;
+
+    vel += GRAV_FORCE * grav;
+    py += vel;
+    if (py >= H - SIZE) { py = H - SIZE; vel = 0; }
+    if (py <= 0) { py = 0; vel = 0; }
+
+    particles.push([px + 5, py + rand(5, 35), -rand(1, 2), rand(-0.3, 0.3), 15, 15, SKINS[skinIndex].body, 3]);
+
+    spawnTimer += slow ? 0.5 : 1;
+    if (spawnTimer >= spawnDelay) {
+      spawnTimer = 0;
+      const h = randInt(50, 120);
+      if (Math.random() < 0.5) obstacles.push({ x: W, y: H - h, w: 34, h, floor: true });
+      else obstacles.push({ x: W, y: 0, w: 34, h, floor: false });
+
+      if (Math.random() < 0.75) {
+        const gap = Math.floor(spawnDelay * speed);
+        const cx = W + Math.floor(gap / 2);
+        const lane = choice([30, H / 2, H - 30]);
+        if (Math.random() < 0.12) {
+          pickups.push({ x: cx, y: lane - 14, w: 28, h: 28, kind: choice(["shield", "slow"]) });
+        } else if (Math.random() < 0.35) {
+          const count = 5, step = 45;
+          const top = randInt(40, H - 40 - step * (count - 1));
+          const down = Math.random() < 0.5;
+          for (let i = 0; i < count; i++) {
+            const y = down ? top + i * step : top + (count - 1 - i) * step;
+            pickups.push({ x: cx + i * 34, y: y - 11, w: 22, h: 22, kind: "coin" });
+          }
+        } else {
+          const n = randInt(3, 5);
+          for (let i = 0; i < n; i++) pickups.push({ x: cx + i * 34, y: lane - 11, w: 22, h: 22, kind: "coin" });
+        }
+      }
+    }
+
+    for (const o of obstacles) o.x -= eff;
+    obstacles = obstacles.filter(o => o.x + o.w > 0);
+    for (const p of pickups) p.x -= eff;
+    pickups = pickups.filter(p => p.x + p.w > 0);
+
+    const body = { x: px, y: py, w: SIZE, h: SIZE };
+    pickups = pickups.filter(p => {
+      if (!hit(body, p)) return true;
+      const cx = p.x + p.w / 2, cy = p.y + p.h / 2;
+      if (p.kind === "coin") { coins++; burst(cx, cy, "#ffd23c", 6, 2.5); sfx.coin(); }
+      else if (p.kind === "shield") { shield = true; burst(cx, cy, "#50a0ff", 14, 3); sfx.power(); }
+      else {
+        slowMax = 300 + (speed - 6) * 37; slowTimer = slowMax;
+        burst(cx, cy, "#be6eff", 14, 3); sfx.power();
+      }
+      return false;
+    });
+
+    const hb = { x: px + 4, y: py + 4, w: SIZE - 8, h: SIZE - 8 };
+    const hitObs = obstacles.find(o => hit(hb, o));
+    if (hitObs && invincible === 0) {
+      const cx = px + SIZE / 2, cy = py + SIZE / 2;
+      if (shield) {
+        shield = false; invincible = 45;
+        obstacles.splice(obstacles.indexOf(hitObs), 1);
+        burst(cx, cy, "#82c8ff", 25, 5); shake = 8; sfx.brk();
+      } else {
+        state = "over";
+        const final = points();
+        newBest = final > high;
+        if (newBest) high = final;
+        wallet += coins; save();
+        burst(cx, cy, SKINS[skinIndex].inner, 40, 7);
+        burst(cx, cy, "#ff8c3c", 20, 5);
+        shake = 16; sfx.crash();
+      }
+    }
+
+    if (state === "playing") {
+      distance++;
+      speed = Math.min(14, 6 + Math.floor(distance / 300));
+      spawnDelay = Math.max(35, 90 - Math.floor(distance / 100));
+    }
+  }
+
+  if (state !== "paused") {
+    for (const p of particles) { p[0] += p[2]; p[1] += p[3]; p[4]--; }
+    particles = particles.filter(p => p[4] > 0);
+  }
+}
+
+/* ---------- Drawing ---------- */
+function drawCube(x, y, i, g, withGlow) {
+  if (withGlow) ctx.drawImage(glows[i], x + SIZE / 2 - 60, y + SIZE / 2 - 60);
+  if (g === -1) {
+    ctx.save(); ctx.translate(x, y + SIZE); ctx.scale(1, -1);
+    ctx.drawImage(sprites[i], 0, 0); ctx.restore();
+  } else ctx.drawImage(sprites[i], x, y);
+}
+function drawPlayer() {
+  drawCube(px, py, skinIndex, grav, true);
+  if (shield) {
+    const cx = px + SIZE / 2, cy = py + SIZE / 2;
+    circle(ctx, cx, cy, 40, "rgba(80,160,255,0.18)", "rgba(130,200,255,0.8)", 3);
+  }
+}
+function drawObstacle(o) {
+  const sh = 22;
+  let body, spike;
+  if (!o.floor) {
+    body = { x: o.x, y: o.y, w: o.w, h: o.h - sh };
+    spike = [[o.x, body.y + body.h], [o.x + o.w, body.y + body.h], [o.x + o.w / 2, o.y + o.h]];
+  } else {
+    body = { x: o.x, y: o.y + sh, w: o.w, h: o.h - sh };
+    spike = [[o.x, body.y], [o.x + o.w, body.y], [o.x + o.w / 2, o.y]];
+  }
+  ctx.fillStyle = "#96283c"; ctx.fillRect(body.x, body.y, body.w, body.h);
+  ctx.fillStyle = "#ff5a5a"; ctx.fillRect(body.x + 5, body.y, body.w - 10, body.h);
+  poly(ctx, spike, "#ffc85a", "#ff8c3c", 2);
+}
+function drawShieldIcon(cx, cy, color) {
+  poly(ctx, [[cx - 7, cy - 8], [cx + 7, cy - 8], [cx + 7, cy + 1], [cx, cy + 9], [cx - 7, cy + 1]], color, "#fff", 2);
+}
+function drawClockIcon(cx, cy, color) {
+  circle(ctx, cx, cy, 9, null, color, 2);
+  line(ctx, cx, cy, cx, cy - 6, color, 2); line(ctx, cx, cy, cx + 4, cy, color, 2);
+}
+function drawCoinIcon(cx, cy) { circle(ctx, cx, cy, 9, "#ffc832"); circle(ctx, cx, cy, 5, "#ffeb82"); }
+function drawPickup(p) {
+  const cx = p.x + p.w / 2, cy = p.y + p.h / 2, t = performance.now();
+  if (p.kind === "coin") {
+    const w = Math.max(4, 22 * Math.abs(Math.cos(t / 250 + p.x * 0.03)));
+    ellipse(ctx, cx - w / 2, p.y, w, p.h, "#ffc832");
+    if (w > 10) ellipse(ctx, cx - w / 2 + 3, p.y + 3, w - 6, p.h - 6, "#ffeb82");
+  } else {
+    const color = p.kind === "shield" ? "#50a0ff" : "#be6eff";
+    const r = 16 + 2 * Math.sin(t / 200);
+    circle(ctx, cx, cy, r, "#191932", color, 2);
+    if (p.kind === "shield") drawShieldIcon(cx, cy, color); else drawClockIcon(cx, cy, color);
+  }
+}
+function drawButton(r, label) {
+  rr(ctx, r.x, r.y, r.w, r.h, 8, "#1c203e", "#5a6496", 2);
+  text(label, r.x + r.w / 2, r.y + r.h / 2, 16, "#fff", "center", true);
+}
+function drawIconButton(r, kind) {
+  const cx = r.x + r.w / 2, cy = r.y + r.h / 2;
+  circle(ctx, cx, cy, r.w / 2, "#1c203e", "#5a6496", 2);
+  if (kind === "rules") {
+    rr(ctx, cx - 9, cy - 12, 18, 24, 3, "#fff");
+    for (let i = 0; i < 4; i++) line(ctx, cx - 5, cy - 6 + i * 5, cx + 5, cy - 6 + i * 5, "#3c4678", 2);
+  } else if (kind === "drip") {
+    ctx.drawImage(sprites[skinIndex], cx - 14, cy - 14, 28, 28);
+  } else {
+    poly(ctx, [[cx - 12, cy - 4], [cx - 6, cy - 4], [cx + 1, cy - 10], [cx + 1, cy + 10], [cx - 6, cy + 4], [cx - 12, cy + 4]], "#fff");
+    if (muted) {
+      line(ctx, cx + 5, cy - 6, cx + 13, cy + 6, "#ff5a5a", 3);
+      line(ctx, cx + 13, cy - 6, cx + 5, cy + 6, "#ff5a5a", 3);
+    } else {
+      ctx.strokeStyle = "#fff"; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(cx + 1, cy, 7, -0.9, 0.9); ctx.stroke();
+      ctx.beginPath(); ctx.arc(cx + 1, cy, 12, -0.9, 0.9); ctx.stroke();
+    }
+  }
+}
+function drawRule(parts, x, y) {
+  for (const [str, key] of parts) {
+    ctx.font = (key ? "bold " : "") + "18px " + FONT;
+    ctx.fillStyle = key ? "#00e1ff" : "#fff";
+    ctx.textAlign = "left"; ctx.textBaseline = "middle";
+    ctx.fillText(str, x, y);
+    x += ctx.measureText(str).width;
+  }
+}
+
+function draw() {
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.fillStyle = "#000"; ctx.fillRect(0, 0, W, H);
+  let ox = 0, oy = 0;
+  if (shake > 0) { const a = Math.max(1, shake >> 1); ox = rand(-a, a); oy = rand(-a, a); shake--; }
+  ctx.translate(ox, oy);
+
+  ctx.fillStyle = "#0e0e1c"; ctx.fillRect(0, 0, W, H);
+  ctx.fillStyle = "#7878aa";
+  for (const s of stars) { circle(ctx, s[0], s[1], s[3], "#7878aa"); }
+  ctx.fillStyle = "#007898"; ctx.fillRect(0, H - 3, W, 3); ctx.fillRect(0, 0, W, 3);
+
+  for (const p of pickups) drawPickup(p);
+  for (const o of obstacles) drawObstacle(o);
+  if ((state === "playing" || state === "paused") && invincible % 6 < 3) drawPlayer();
+  for (const [x, y, , , life, max, color, size] of particles)
+    circle(ctx, x, y, Math.max(1, size * life / max), color);
+
+  if (slowTimer > 0 && (state === "playing" || state === "paused")) {
+    ctx.fillStyle = "rgba(120,60,200,0.14)"; ctx.fillRect(0, 0, W, H);
+  }
+
+  if (state === "menu") {
+    const bob = Math.sin(performance.now() / 300) * 6;
+    text("GRAVITY FLIP", W / 2, 118 + bob, 76, "#00e1ff", "center", true);
+    text("RUNNER", W / 2, 178 + bob, 76, "#ff785a", "center", true);
+    text("Tap or press SPACE to start", W / 2, 255, 30, "#fff", "center", true);
+    if (high) text("Best Score: " + high, BEST_POS[0], BEST_POS[1], 20, "#a0a0be", "center", true);
+    drawIconButton(RULES_BTN, "rules");
+    drawIconButton(DRIP_BTN, "drip");
+    drawIconButton(MUTE_BTN, "sound");
+    const wt = String(wallet);
+    ctx.font = "bold 20px " + FONT; const tw = ctx.measureText(wt).width;
+    text(wt, W - 15, 21, 20, "#ffdc64", "right", true);
+    drawCoinIcon(W - tw - 32, 21);
+  } else {
+    text("Score: " + points(), W - 15, 20, 20, "#fff", "right", true);
+    text("Best Score: " + high, W - 15, 44, 20, "#a0a0be", "right", true);
+    const ct = String(coins);
+    ctx.font = "bold 20px " + FONT; const cw = ctx.measureText(ct).width;
+    text(ct, W - 15, 68, 20, "#ffdc64", "right", true);
+    drawCoinIcon(W - cw - 32, 68);
+    if (shield) { drawShieldIcon(25, 24, "#50a0ff"); text("Shield", 42, 24, 18, "#82c8ff", "left", true); }
+    if (slowTimer > 0) {
+      drawClockIcon(25, 54, "#be6eff");
+      ctx.fillStyle = "#3c285a"; ctx.fillRect(42, 49, 100, 10);
+      ctx.fillStyle = "#be6eff"; ctx.fillRect(42, 49, 100 * slowTimer / slowMax, 10);
+    }
+    if (state === "playing" || state === "paused") {
+      circle(ctx, W / 2, 24, 17, "rgba(28,32,62,0.8)", "#5a6496", 2);
+      if (state === "playing") {
+        ctx.fillStyle = "#fff"; ctx.fillRect(W / 2 - 6, 17, 4, 14); ctx.fillRect(W / 2 + 2, 17, 4, 14);
+      } else poly(ctx, [[W / 2 - 5, 16], [W / 2 - 5, 32], [W / 2 + 8, 24]], "#fff");
+    }
+  }
+
+  if (state === "paused") {
+    ctx.fillStyle = "rgba(0,0,0,0.45)"; ctx.fillRect(0, 0, W, H);
+    text("PAUSED", W / 2, H / 2 - 14, 44, "#fff", "center", true);
+    text("Tap or press P to continue", W / 2, H / 2 + 26, 20, "#b4b4c8", "center");
+  }
+
+  if (state === "over") {
+    ctx.fillStyle = "rgba(0,0,0,0.35)"; ctx.fillRect(0, 0, W, H);
+    text("GAME OVER", W / 2, 112, 48, "#fff", "center", true);
+    text("Score: " + points() + "    Coins: " + coins, W / 2, 160, 22, "#fff", "center", true);
+    if (newBest) text("NEW BEST SCORE!", W / 2, 188, 22, "#ffd23c", "center", true);
+    text("Wallet: " + wallet + " coins", W / 2, 216, 20, "#ffdc64", "center", true);
+    drawButton(RESTART_BTN, "Restart");
+    drawButton(MENU_BTN, "Menu / Drip");
+  }
+
+  if (state === "menu" && panel === "rules") {
+    ctx.fillStyle = "rgba(0,0,0,0.7)"; ctx.fillRect(0, 0, W, H);
+    rr(ctx, 130, 15, 540, 370, 14, "#161832", "#00c8f0", 2);
+    text("HOW TO PLAY", W / 2, 52, 36, "#00e1ff", "center", true);
+    const rules = [
+      [["TAP", 1], [" or ", 0], ["SPACE", 1], [" to flip gravity and dodge the spikes", 0]],
+      [["P", 1], [" or the ", 0], ["pause button", 1], [" to pause the game", 0]],
+      [["M", 1], [" or the ", 0], ["speaker", 1], [" to mute or unmute the sound", 0]],
+      [["R", 1], [" to restart after a crash, ", 0], ["ENTER", 1], [" for the menu", 0]],
+      [["Grab ", 0], ["coins", 1], [" and spend them in the Drip shop", 0]],
+      [["Shield", 1], [" blocks one hit", 0]],
+      [["Slow-mo", 1], [" gives you time to react", 0]],
+    ];
+    rules.forEach((r, i) => drawRule(r, 165, 100 + i * 38));
+    text("Tap anywhere to close", W / 2, 360, 16, "#9696b4", "center");
+  }
+
+  if (state === "menu" && panel === "drip") {
+    ctx.fillStyle = "rgba(0,0,0,0.7)"; ctx.fillRect(0, 0, W, H);
+    text("DRIP SHOP", W / 2, 42, 40, "#00e1ff", "center", true);
+    ctx.font = "bold 28px " + FONT; const tw = ctx.measureText(String(wallet)).width;
+    text(String(wallet), W / 2 + 14, 84, 28, "#ffdc64", "center", true);
+    drawCoinIcon(W / 2 - tw / 2 - 6, 84);
+    CARDS.forEach((r, i) => {
+      const eq = i === skinIndex;
+      rr(ctx, r.x, r.y, r.w, r.h, 12, "#1a1c38", eq ? "#ffd23c" : "#5a6496", eq ? 3 : 2);
+      drawCube(r.x + r.w / 2 - SIZE / 2, r.y + 10, i, 1, false);
+      text(SKINS[i].name, r.x + r.w / 2, r.y + 66, 18, "#fff", "center", true);
+      let st, col;
+      if (eq) { st = "Equipped"; col = "#78f082"; }
+      else if (unlocked.includes(i)) { st = "Tap to equip"; col = "#b4b4d2"; }
+      else { st = SKINS[i].price + " coins"; col = "#ffdc64"; }
+      text(st, r.x + r.w / 2, r.y + 88, 16, col, "center", true);
+    });
+    drawButton(CLOSE_BTN, "Close");
+    if (msgTimer > 0) text(msg, W / 2, H - 14, 18, "#ffc878", "center", true);
+  }
+}
+
+/* ---------- Main loop: fixed 60 updates/second on every device ---------- */
+let last = performance.now(), acc = 0;
+function loop(now) {
+  acc += Math.min(now - last, 100);
+  last = now;
+  while (acc >= 1000 / 60) { update(); acc -= 1000 / 60; }
+  draw();
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+
+/* ---------- Make it installable / work offline ---------- */
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));
+}
+</script>
+</body>
+</html>
